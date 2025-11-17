@@ -29,19 +29,20 @@ noButton.addEventListener("click", () => {
     noButton.style.width = 'auto';
     noButton.style.width = `${noButton.scrollWidth}px`;
 
-    // decrease the size of the no button
+    // decrease the size of the no button (shrink)
     if (noScale > minNoScale) {
-        noScale -= 0.1;
-        noButton.style.transform = `scale(${noScale})`;
+        noScale = Math.max(minNoScale, +(noScale - 0.1).toFixed(2));
     }
+
+    // ensure transform origin is top-left so positioning is stable
+    noButton.style.transformOrigin = 'top left';
+    noButton.style.transform = `scale(${noScale})`;
 
     // Calculate the scaled width of the yesButton
     const baseWidth = parseFloat(yesButtonStyle.width);
     const scaledWidth = baseWidth * yesScale; // Reflects the actual visual size of the button
 
-    console.log(`Scaled Width: ${scaledWidth}, Max Width: ${maxYesWidth}`);
-
-    // Check if the scaled width is less than the max width
+    // Check if the scaled width is less than the max width and adjust yes button if needed
     if (scaledWidth < maxYesWidth) {
         yesScale += 0.5; // Increment scale by a smaller step
         yesButton.style.transform = `scale(${yesScale})`;
@@ -55,6 +56,77 @@ noButton.addEventListener("click", () => {
         const newGap = Math.sqrt(currentGap * gapScaleFactor); // Scale based on the factor
         buttonContainer.style.gap = `${newGap}px`;
     }
+
+    // Move the no button to a random non-overlapping location
+    (function moveNoButtonAvoidingCollisions() {
+        // helper: rect intersection
+        function rectsIntersect(a, b) {
+            return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+        }
+
+        // get protected rects
+        const yesRect = yesButton.getBoundingClientRect();
+        const gifRect = gifElement.getBoundingClientRect();
+
+        // gather visible text elements on the page to protect their rects
+        const textRects = Array.from(document.querySelectorAll('body *'))
+            .filter(el => {
+                if (el === noButton || el === yesButton || el === gifElement) return false;
+                if (!(el instanceof Element)) return false;
+                const style = getComputedStyle(el);
+                if (style.visibility === 'hidden' || style.display === 'none' || parseFloat(style.opacity) === 0) return false;
+                // avoid tiny elements like icons or the buttons themselves
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt) return false;
+                return true;
+            })
+            .map(el => el.getBoundingClientRect())
+            // ignore extremely small rects (likely decorative)
+            .filter(r => r.width > 12 && r.height > 10);
+
+        const protectedRects = [yesRect, gifRect, ...textRects];
+
+        // measure the no button's visual size (after scale)
+        const noRectCurrent = noButton.getBoundingClientRect();
+        const elW = noRectCurrent.width;
+        const elH = noRectCurrent.height;
+
+        const padding = 8; // keep this far from edges
+        const maxAttempts = 100;
+        let placed = false;
+        let attempt = 0;
+        let candidateX = 0;
+        let candidateY = 0;
+
+        while (!placed && attempt < maxAttempts) {
+            attempt++;
+            candidateX = Math.floor(Math.random() * Math.max(1, (window.innerWidth - elW - padding * 2))) + padding;
+            candidateY = Math.floor(Math.random() * Math.max(1, (window.innerHeight - elH - padding * 2))) + padding;
+
+            const candidateRect = {
+                left: candidateX,
+                top: candidateY,
+                right: candidateX + elW,
+                bottom: candidateY + elH
+            };
+
+            // don't overlap any protected rect (yes button, gif, or visible text)
+            const overlapsProtected = protectedRects.some(pr => rectsIntersect(candidateRect, pr));
+            if (!overlapsProtected) {
+                placed = true;
+                break;
+            }
+        }
+
+        if (placed) {
+            // position fixed so coordinates are viewport-based and stable
+            noButton.style.position = 'fixed';
+            noButton.style.left = `${candidateX}px`;
+            noButton.style.top = `${candidateY}px`;
+            noButton.style.transition = 'left 0.28s ease, top 0.28s ease, transform 0.12s ease';
+        }
+        // if not placed, leave it where it is (shrunk)
+    })();
 
     // increment the number of clicks
     noClicks++;
